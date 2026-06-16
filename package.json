@@ -5,10 +5,12 @@
   "main": "dist/server.js",
   "scripts": {
     "build": "tsc",
+    "prestart": "node scripts/init-db.mjs",
     "start": "node dist/server.js",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "db:setup": "node scripts/setup-db.mjs",
-    "db:seed": "node scripts/seed-data.mjs"
+    "db:seed": "node scripts/seed-data.mjs",
+    "db:init": "node scripts/init-db.mjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
