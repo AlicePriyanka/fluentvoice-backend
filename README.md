@@ -105,3 +105,4 @@ The SQLite database (`fluentvoice.db`) consists of the following tables:
 - `sessions` — speech analysis session records
 - `appointments` — patient-therapist appointment records
 - `treatment_plans` — therapist-assigned treatment plans per patient
+# fluentvoice-backend
