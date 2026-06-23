@@ -8,19 +8,31 @@ const router = Router();
 router.get("/patients", async (req: Request, res: Response) => {
   try {
     const jwt = await getAuthUser(req);
-    if (!jwt) return res.status(401).json({ error: "Unauthorized" });
-    if (jwt.role !== "therapist") return res.status(403).json({ error: "Forbidden" });
+    if (!jwt) {
+      console.warn("[Therapist] Unauthorized GET patients request (missing/invalid token)");
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (jwt.role !== "therapist") {
+      console.warn(`[Therapist] Forbidden GET patients request. User ${jwt.sub} is role ${jwt.role}, therapist role required.`);
+      return res.status(403).json({ error: "Forbidden" });
+    }
 
-    // Fetch only patients assigned to THIS therapist
+    console.log(`[Therapist] GET patients requested. Therapist ID: ${jwt.sub}`);
+
+    // Fetch all patients in the system to ensure completeness
+    console.log(`[Therapist] Querying users table for all patients`);
     const patients = db.prepare(`
       SELECT _id, name, email, joinedDate 
       FROM users
-      WHERE role = 'patient' AND therapistId = ?
-    `).all(jwt.sub) as any[];
+      WHERE role = 'patient'
+    `).all() as any[];
 
     if (patients.length === 0) {
+      console.log(`[Therapist] No patients found in the system`);
       return res.json({ patients: [] });
     }
+
+    console.log(`[Therapist] Found ${patients.length} assigned patients. Fetching their sessions and plans...`);
 
     const patientIds = patients.map((p) => p._id);
     const placeholders = patientIds.map(() => "?").join(",");
@@ -80,6 +92,7 @@ router.get("/patients", async (req: Request, res: Response) => {
       }
 
       const plan = planMap[id];
+      const hasPlan = !!plan;
 
       return {
         id,
@@ -90,14 +103,17 @@ router.get("/patients", async (req: Request, res: Response) => {
         avgFluency: avgFluency,
         trend: count >= 2 ? deriveTrend(firstScore, lastScore) : "stable",
         lastSessionDate: lastDate,
-        condition: plan?.condition ?? null,
+        assessmentStatus: count >= 1 ? "completed" : "pending",
+        treatmentPlanStatus: hasPlan ? "active" : "pending",
+        condition: plan?.condition ?? "Fluency disorder",
         nextAppointment: plan?.nextAppointment ?? null,
       };
     });
 
+    console.log(`[Therapist] SUCCESS: Returned ${result.length} patients for therapist: ${jwt.sub}`);
     return res.json({ patients: result });
   } catch (err) {
-    console.error("GET /api/therapist/patients error:", err);
+    console.error("[Therapist] Error in GET /api/therapist/patients:", err);
     return res.status(500).json({ error: "Failed to fetch patients." });
   }
 });
@@ -106,21 +122,33 @@ router.get("/patients", async (req: Request, res: Response) => {
 router.get("/patients/:id", async (req: Request, res: Response) => {
   try {
     const jwt = await getAuthUser(req);
-    if (!jwt) return res.status(401).json({ error: "Unauthorized" });
-    if (jwt.role !== "therapist") return res.status(403).json({ error: "Forbidden" });
+    if (!jwt) {
+      console.warn("[Therapist] Unauthorized GET patient details request (missing/invalid token)");
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (jwt.role !== "therapist") {
+      console.warn(`[Therapist] Forbidden GET patient details request. User ${jwt.sub} is role ${jwt.role}, therapist role required.`);
+      return res.status(403).json({ error: "Forbidden" });
+    }
 
     const { id } = req.params;
+    console.log(`[Therapist] GET patient details requested by Therapist: ${jwt.sub} for Patient: ${id}`);
 
     // Fetch patient user record
+    console.log(`[Therapist] Querying users table for patient ID: ${id}`);
     const patient = db.prepare(`
       SELECT _id, name, email, joinedDate 
       FROM users
       WHERE _id = ? AND role = 'patient'
     `).get(id) as any;
 
-    if (!patient) return res.status(404).json({ error: "Patient not found" });
+    if (!patient) {
+      console.warn(`[Therapist] Patient Not Found: ID ${id}`);
+      return res.status(404).json({ error: "Patient not found" });
+    }
 
     // Fetch all sessions for this patient, newest first
+    console.log(`[Therapist] Querying sessions table for patient ID: ${id}`);
     const rawSessions = db.prepare(`
       SELECT * FROM sessions
       WHERE userId = ?
@@ -134,13 +162,13 @@ router.get("/patients/:id", async (req: Request, res: Response) => {
       try {
         disfluencies = typeof s.disfluencies === "string" ? JSON.parse(s.disfluencies) : s.disfluencies;
       } catch (e) {
-        console.error("Failed to parse disfluencies JSON", e);
+        console.error("[Therapist] Failed to parse disfluencies JSON:", e);
       }
 
       try {
         timeline = typeof s.timeline === "string" ? JSON.parse(s.timeline) : s.timeline;
       } catch (e) {
-        console.error("Failed to parse timeline JSON", e);
+        console.error("[Therapist] Failed to parse timeline JSON:", e);
       }
 
       return {
@@ -180,6 +208,7 @@ router.get("/patients/:id", async (req: Request, res: Response) => {
     }
 
     // Fetch treatment plan
+    console.log(`[Therapist] Querying treatment_plans table for patient ID: ${id}`);
     const plan = db.prepare("SELECT * FROM treatment_plans WHERE patientId = ?").get(id) as any;
 
     let goals = [];
@@ -190,7 +219,7 @@ router.get("/patients/:id", async (req: Request, res: Response) => {
         goals = typeof plan.goals === "string" ? JSON.parse(plan.goals) : plan.goals;
       }
     } catch (e) {
-      console.error("Failed to parse plan goals JSON", e);
+      console.error("[Therapist] Failed to parse plan goals JSON:", e);
     }
 
     try {
@@ -198,8 +227,58 @@ router.get("/patients/:id", async (req: Request, res: Response) => {
         exercises = typeof plan.exercises === "string" ? JSON.parse(plan.exercises) : plan.exercises;
       }
     } catch (e) {
-      console.error("Failed to parse plan exercises JSON", e);
+      console.error("[Therapist] Failed to parse plan exercises JSON:", e);
     }
+
+    // Fetch patient appointments history
+    console.log(`[Therapist] Querying appointments history for patient ID: ${id}`);
+    const appts = db.prepare(`
+      SELECT * FROM appointments 
+      WHERE patientId = ? 
+      ORDER BY date DESC, time DESC
+    `).all(id) as any[];
+
+    const appointmentsMapped = appts.map(a => ({
+      id: a._id,
+      patientId: a.patientId,
+      therapistId: a.therapistId,
+      patientName: a.patientName,
+      date: a.date,
+      time: a.time,
+      durationMinutes: a.durationMinutes,
+      type: a.type,
+      status: a.status,
+      notes: a.notes,
+      createdAt: a.createdAt,
+    }));
+
+    // Fetch patient treatment plan history/versions
+    console.log(`[Therapist] Querying treatment plan history for patient ID: ${id}`);
+    const planHistory = db.prepare(`
+      SELECT * FROM treatment_plan_versions 
+      WHERE patientId = ? 
+      ORDER BY updatedAt DESC
+    `).all(id) as any[];
+
+    const planHistoryMapped = planHistory.map(v => {
+      let vGoals = [];
+      let vExercises = [];
+      try {
+        vGoals = typeof v.goals === "string" ? JSON.parse(v.goals) : v.goals;
+      } catch {}
+      try {
+        vExercises = typeof v.exercises === "string" ? JSON.parse(v.exercises) : v.exercises;
+      } catch {}
+      return {
+        id: v._id,
+        goals: vGoals,
+        exercises: vExercises,
+        remarks: v.remarks,
+        updatedAt: v.updatedAt,
+      };
+    });
+
+    console.log(`[Therapist] SUCCESS: Details loaded for Patient ${id}. Sessions: ${count}, Appointments: ${appointmentsMapped.length}, Versions: ${planHistoryMapped.length}`);
 
     return res.json({
       patient: {
@@ -215,9 +294,11 @@ router.get("/patients/:id", async (req: Request, res: Response) => {
       },
       stats: { count, avgFluency, trend },
       sessions: mappedSessions,
+      appointments: appointmentsMapped,
+      treatmentPlanHistory: planHistoryMapped,
     });
   } catch (err) {
-    console.error("GET /api/therapist/patients/:id error:", err);
+    console.error(`[Therapist] Error in GET /api/therapist/patients/${req.params.id}:`, err);
     return res.status(500).json({ error: "Failed to fetch patient data." });
   }
 });

@@ -11,10 +11,14 @@ router.get("/", async (req: Request, res: Response) => {
     const jwt = await getAuthUser(req);
     if (!jwt) return res.status(401).json({ error: "Unauthorized" });
 
+    console.log(`[Sessions] Retrieval requested by user: ${jwt.sub} (${jwt.role})`);
+
     // Query sessions from SQLite sorted by createdAt descending
     const results = db.prepare(
       "SELECT * FROM sessions WHERE userId = ? ORDER BY createdAt DESC"
     ).all(jwt.sub) as any[];
+
+    console.log(`[Sessions] SUCCESS: Retrieved ${results.length} sessions for user: ${jwt.sub}`);
 
     const mapped = results.map((s) => {
       let disfluencies = [];
@@ -79,7 +83,10 @@ router.post("/", async (req: Request, res: Response) => {
       audioUrl,
     } = req.body;
 
+    console.log(`[Sessions] Creating new session for user: ${jwt.sub}. Score: ${fluency_score}, Severity: ${severity}, Audio: ${audioUrl ? 'Yes' : 'No'}`);
+
     if (typeof fluency_score !== "number") {
+      console.warn(`[Sessions] Bad Request: Missing fluency_score for user ${jwt.sub}`);
       return res.status(400).json({ error: "fluency_score is required." });
     }
 
@@ -102,6 +109,7 @@ router.post("/", async (req: Request, res: Response) => {
       new Date().toISOString()
     );
 
+    console.log(`[Sessions] SUCCESS: Saved session ${sessionId} for user: ${jwt.sub}`);
     return res.status(201).json({ id: sessionId });
   } catch (err) {
     console.error("POST /api/sessions error:", err);

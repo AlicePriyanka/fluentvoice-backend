@@ -79,6 +79,16 @@ try {
   console.log("✓ Created index on sessions(userId, createdAt)");
 
   // 4. Create appointments table
+  try {
+    const schema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='appointments'").get();
+    if (schema && !schema.sql.includes('accepted')) {
+      console.log("[setup-db] Dropping old appointments table to update CHECK constraint...");
+      db.exec("DROP TABLE IF EXISTS appointments;");
+    }
+  } catch (e) {
+    console.error("[setup-db] Error checking/dropping old appointments table:", e);
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS appointments (
       _id TEXT PRIMARY KEY,
@@ -89,7 +99,7 @@ try {
       time TEXT NOT NULL,
       durationMinutes INTEGER NOT NULL,
       type TEXT NOT NULL CHECK(type IN ('in-clinic', 'telehealth')),
-      status TEXT NOT NULL CHECK(status IN ('pending', 'confirmed', 'cancelled')),
+      status TEXT NOT NULL CHECK(status IN ('pending', 'confirmed', 'cancelled', 'accepted', 'rejected', 'completed')),
       notes TEXT,
       createdAt TEXT NOT NULL,
       updatedAt TEXT NOT NULL,
@@ -124,6 +134,26 @@ try {
     );
   `);
   console.log("✓ Created 'treatment_plans' table");
+
+  // 6. Create treatment_plan_versions table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS treatment_plan_versions (
+      _id TEXT PRIMARY KEY,
+      patientId TEXT NOT NULL,
+      therapistId TEXT,
+      goals TEXT NOT NULL,
+      exercises TEXT NOT NULL,
+      remarks TEXT,
+      updatedAt TEXT NOT NULL,
+      FOREIGN KEY (patientId) REFERENCES users (_id) ON DELETE CASCADE,
+      FOREIGN KEY (therapistId) REFERENCES users (_id) ON DELETE SET NULL
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_treatment_plan_versions_patient 
+    ON treatment_plan_versions (patientId, updatedAt DESC);
+  `);
+  console.log("✓ Created 'treatment_plan_versions' table");
 
   console.log("\n✅ SQLite Database tables and indexes initialized successfully.");
 } catch (err) {

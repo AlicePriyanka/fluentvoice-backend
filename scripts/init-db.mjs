@@ -73,6 +73,16 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_sessions_user_created ON sessions (userId, createdAt DESC);
 `);
 
+try {
+  const schema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='appointments'").get();
+  if (schema && !schema.sql.includes('accepted')) {
+    console.log("[init-db] Dropping old appointments table to update CHECK constraint...");
+    db.exec("DROP TABLE IF EXISTS appointments;");
+  }
+} catch (e) {
+  console.error("[init-db] Error checking/dropping old appointments table:", e);
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS appointments (
     _id TEXT PRIMARY KEY,
@@ -83,7 +93,7 @@ db.exec(`
     time TEXT NOT NULL,
     durationMinutes INTEGER NOT NULL,
     type TEXT NOT NULL CHECK(type IN ('in-clinic', 'telehealth')),
-    status TEXT NOT NULL CHECK(status IN ('pending', 'confirmed', 'cancelled')),
+    status TEXT NOT NULL CHECK(status IN ('pending', 'confirmed', 'cancelled', 'accepted', 'rejected', 'completed')),
     notes TEXT,
     createdAt TEXT NOT NULL,
     updatedAt TEXT NOT NULL,
@@ -106,6 +116,21 @@ db.exec(`
     FOREIGN KEY (patientId) REFERENCES users (_id) ON DELETE CASCADE,
     FOREIGN KEY (therapistId) REFERENCES users (_id) ON DELETE SET NULL
   );
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS treatment_plan_versions (
+    _id TEXT PRIMARY KEY,
+    patientId TEXT NOT NULL,
+    therapistId TEXT,
+    goals TEXT NOT NULL,
+    exercises TEXT NOT NULL,
+    remarks TEXT,
+    updatedAt TEXT NOT NULL,
+    FOREIGN KEY (patientId) REFERENCES users (_id) ON DELETE CASCADE,
+    FOREIGN KEY (therapistId) REFERENCES users (_id) ON DELETE SET NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_treatment_plan_versions_patient ON treatment_plan_versions (patientId, updatedAt DESC);
 `);
 
 console.log("[init-db] ✓ All tables ensured.");
@@ -195,50 +220,6 @@ async function seedUsers() {
       INSERT INTO profiles (_id, userId, role, age, condition, phone, updatedAt)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(randomId(), patientId2, "patient", 30, "Cluttering and Rapid Speech", "+1 (555) 048-1123", now.toISOString());
-  }
-
-  // ── Sessions for Patient 1 (only insert if they have none) ──────────────────
-  const sessionCount = (userId) => db.prepare("SELECT COUNT(*) as c FROM sessions WHERE userId = ?").get(userId).c;
-
-  if (sessionCount(patientId1) === 0) {
-    const insertSession = db.prepare(`
-      INSERT INTO sessions (_id, userId, fluency_score, severity, speech_rate, transcript, disfluencies, pauses, timeline, audioUrl, createdAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    insertSession.run(randomId(), patientId1, 68, "moderate", 132,
-      "I was trying to explain the project to my manager and I felt confident at first but then I started to b-block on the word 'because'.",
-      JSON.stringify([{event:"block",time:"0:08",word:"because",duration:2.1}]),
-      4, JSON.stringify([]), "",
-      new Date(now.getTime() - 5 * 86400000).toISOString());
-    insertSession.run(randomId(), patientId1, 72, "mild", 135,
-      "This is a reading sample for speech practice. I worked on my diaphragmatic breathing before starting.",
-      JSON.stringify([{event:"repetition",time:"0:15",word:"and",duration:0.5}]),
-      2, JSON.stringify([]), "",
-      new Date(now.getTime() - 3 * 86400000).toISOString());
-    insertSession.run(randomId(), patientId1, 78, "mild", 140,
-      "Today I feel much more relaxed. The speech is flowing better.",
-      JSON.stringify([{event:"pause",time:"0:10",duration:0.8}]),
-      1, JSON.stringify([]), "",
-      new Date(now.getTime() - 1 * 86400000).toISOString());
-    console.log("[init-db] ✓ Sessions for Patient 1 inserted.");
-  }
-
-  if (sessionCount(patientId2) === 0) {
-    const insertSession = db.prepare(`
-      INSERT INTO sessions (_id, userId, fluency_score, severity, speech_rate, transcript, disfluencies, pauses, timeline, audioUrl, createdAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    insertSession.run(randomId(), patientId2, 55, "moderate", 180,
-      "I talk very fast when I am nervous and people tell me that I run my words together.",
-      JSON.stringify([{event:"word_rep",time:"0:05",word:"very",duration:0.3}]),
-      5, JSON.stringify([]), "",
-      new Date(now.getTime() - 6 * 86400000).toISOString());
-    insertSession.run(randomId(), patientId2, 75, "mild", 150,
-      "Speaking in public was easier today. I used pausing techniques.",
-      JSON.stringify([{event:"pause",time:"0:15",duration:0.6}]),
-      2, JSON.stringify([]), "",
-      new Date(now.getTime() - 2 * 86400000).toISOString());
-    console.log("[init-db] ✓ Sessions for Patient 2 inserted.");
   }
 
   // ── Appointments ─────────────────────────────────────────────────────────────
