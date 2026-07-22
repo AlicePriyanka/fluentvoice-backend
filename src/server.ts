@@ -1,6 +1,19 @@
 import dotenv from "dotenv";
 dotenv.config();
 
+// ── Temporary diagnostic: log which DB this process is actually connected to ──
+function getMaskedDbInfo(): { host: string; database: string; user: string } {
+  const raw = process.env.DATABASE_URL || "";
+  try {
+    const url = new URL(raw);
+    return { host: url.hostname, database: url.pathname.replace(/^\//, ""), user: url.username };
+  } catch {
+    return { host: "PARSE_ERROR", database: "PARSE_ERROR", user: "PARSE_ERROR" };
+  }
+}
+const dbInfo = getMaskedDbInfo();
+console.log(`[DB-DIAG] Runtime DB → host=${dbInfo.host} | db=${dbInfo.database} | user=${dbInfo.user}`);
+
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
@@ -31,6 +44,11 @@ app.use(cookieParser());
 // Health Check
 app.get("/health", (req, res) => {
   res.json({ status: "healthy", timestamp: new Date() });
+});
+
+// Temporary diagnostic endpoint — shows masked DB info, NEVER the password
+app.get("/debug/db", (req, res) => {
+  res.json({ db: getMaskedDbInfo(), note: "Remove this endpoint after diagnosis" });
 });
 
 // Register API Routes
