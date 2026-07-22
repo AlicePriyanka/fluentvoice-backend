@@ -14,9 +14,14 @@ router.post("/register", async (req: Request, res: Response) => {
 
     console.log(`[Register] Initiated registration request for email: ${email}, role: ${role}`);
 
+    const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
     if (!name?.trim() || !email?.trim() || !password || !role) {
       console.warn(`[Register] Bad Request: Missing required fields for email: ${email}`);
       return res.status(400).json({ error: "All fields are required." });
+    }
+    if (!EMAIL_REGEX.test(email.trim())) {
+      console.warn(`[Register] Bad Request: Invalid email format for: ${email}`);
+      return res.status(400).json({ error: "Please enter a valid email address." });
     }
     if (password.length < 8) {
       console.warn(`[Register] Bad Request: Password too short for email: ${email}`);
@@ -123,8 +128,12 @@ router.post("/login", async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
 
+    const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
     if (!email?.trim() || !password) {
       return res.status(400).json({ error: "Email and password are required." });
+    }
+    if (!EMAIL_REGEX.test(email.trim())) {
+      return res.status(400).json({ error: "Please enter a valid email address." });
     }
 
     const emailKey = email.toLowerCase().trim();
