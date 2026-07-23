@@ -17,6 +17,15 @@ router.get("/history", async (req: Request, res: Response) => {
     const patientId = (req.query.patientId as string) ?? jwt.sub;
     console.log(`[Treatment] GET plan history requested by User: ${jwt.sub} (${jwt.role}) for Patient ID: ${patientId}`);
 
+    if (jwt.role === "therapist" && patientId !== jwt.sub) {
+      const check = await db.query("SELECT _id FROM users WHERE _id = $1 AND therapistId = $2 AND role = 'patient'", [patientId, jwt.sub]);
+      if (check.rowCount === 0) {
+        return res.status(403).json({ error: "Forbidden: Patient is not assigned to you." });
+      }
+    } else if (jwt.role === "patient" && patientId !== jwt.sub) {
+      return res.status(403).json({ error: "Forbidden: Access denied." });
+    }
+
     const versionsRes = await db.query(
       "SELECT * FROM treatment_plan_versions WHERE patientId = $1 ORDER BY updatedAt DESC",
       [patientId]
@@ -62,6 +71,15 @@ router.get("/", async (req: Request, res: Response) => {
 
     const patientId = (req.query.patientId as string) ?? jwt.sub;
     console.log(`[Treatment] GET plan requested by User: ${jwt.sub} (${jwt.role}) for Patient ID: ${patientId}`);
+
+    if (jwt.role === "therapist" && patientId !== jwt.sub) {
+      const check = await db.query("SELECT _id FROM users WHERE _id = $1 AND therapistId = $2 AND role = 'patient'", [patientId, jwt.sub]);
+      if (check.rowCount === 0) {
+        return res.status(403).json({ error: "Forbidden: Patient is not assigned to you." });
+      }
+    } else if (jwt.role === "patient" && patientId !== jwt.sub) {
+      return res.status(403).json({ error: "Forbidden: Access denied." });
+    }
 
     const planRes = await db.query("SELECT * FROM treatment_plans WHERE patientId = $1", [patientId]);
     const plan = planRes.rows[0];
@@ -125,6 +143,17 @@ router.put("/", async (req: Request, res: Response) => {
     const { goals, exercises, remarks } = body;
 
     console.log(`[Treatment] PUT update request received from User: ${jwt.sub} (${jwt.role}) for Patient: ${patientId}`);
+
+    if (jwt.role === "therapist" && patientId !== jwt.sub) {
+      const check = await db.query("SELECT _id FROM users WHERE _id = $1 AND therapistId = $2 AND role = 'patient'", [patientId, jwt.sub]);
+      if (check.rowCount === 0) {
+        client.release();
+        return res.status(403).json({ error: "Forbidden: Patient is not assigned to you." });
+      }
+    } else if (jwt.role === "patient" && patientId !== jwt.sub) {
+      client.release();
+      return res.status(403).json({ error: "Forbidden: Access denied." });
+    }
 
     const goalsArr = Array.isArray(goals) ? goals : (goals ?? "").split("\\n").filter(Boolean);
     const exercisesArr = Array.isArray(exercises) ? exercises : (exercises ?? "").split("\\n").filter(Boolean);

@@ -19,13 +19,13 @@ router.get("/patients", async (req: Request, res: Response) => {
 
     console.log(`[Therapist] GET patients requested. Therapist ID: ${jwt.sub}`);
 
-    // Fetch all patients in the system to ensure completeness
-    console.log(`[Therapist] Querying users table for all patients`);
+    // Fetch assigned patients for this therapist
+    console.log(`[Therapist] Querying users table for patients assigned to therapist ID: ${jwt.sub}`);
     const patientsRes = await db.query(`
       SELECT _id, name, email, joinedDate 
       FROM users
-      WHERE role = 'patient'
-    `);
+      WHERE role = 'patient' AND therapistId = $1
+    `, [jwt.sub]);
     const patients = patientsRes.rows;
 
     if (patients.length === 0) {
@@ -138,13 +138,13 @@ router.get("/patients/:id", async (req: Request, res: Response) => {
     const { id } = req.params;
     console.log(`[Therapist] GET patient details requested by Therapist: ${jwt.sub} for Patient: ${id}`);
 
-    // Fetch patient user record
-    console.log(`[Therapist] Querying users table for patient ID: ${id}`);
+    // Fetch patient user record verifying therapist ownership
+    console.log(`[Therapist] Querying users table for patient ID: ${id} assigned to therapist: ${jwt.sub}`);
     const patientRes = await db.query(`
       SELECT _id, name, email, joinedDate 
       FROM users
-      WHERE _id = $1 AND role = 'patient'
-    `, [id]);
+      WHERE _id = $1 AND role = 'patient' AND therapistId = $2
+    `, [id, jwt.sub]);
     const patient = patientRes.rows[0];
 
     if (!patient) {

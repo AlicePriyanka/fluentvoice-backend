@@ -21,7 +21,7 @@ router.get("/", async (req: Request, res: Response) => {
       const result = await db.query("SELECT * FROM appointments WHERE patientId = $1 ORDER BY date ASC, time ASC", [jwt.sub]);
       appts = result.rows;
     } else {
-      const result = await db.query("SELECT * FROM appointments ORDER BY date ASC, time ASC");
+      const result = await db.query("SELECT * FROM appointments WHERE therapistId = $1 ORDER BY date ASC, time ASC", [jwt.sub]);
       appts = result.rows;
     }
 
