@@ -13,7 +13,7 @@ router.get("/", async (req: Request, res: Response) => {
 
     // Get base user info from Postgres (excluding passwordHash)
     const userRes = await db.query(
-      "SELECT _id, name, email, role, joinedDate FROM users WHERE _id = $1",
+      "SELECT _id, name, email, role, therapistId, joinedDate FROM users WHERE _id = $1",
       [jwt.sub]
     );
     const user = userRes.rows[0] as any;
@@ -26,6 +26,35 @@ router.get("/", async (req: Request, res: Response) => {
       [jwt.sub]
     );
     const profile = profileRes.rows[0] as any;
+
+    // Fetch assigned therapist if user is a patient and has therapistId
+    let assignedTherapist = null;
+    const tId = user.therapistid ?? user.therapistId;
+    if (user.role === "patient" && tId) {
+      const therapistRes = await db.query(`
+        SELECT 
+          u._id as id, 
+          u.name, 
+          p.qualification, 
+          p.experience, 
+          p.specialty, 
+          p.bio
+        FROM users u
+        LEFT JOIN profiles p ON u._id = p.userId
+        WHERE u._id = $1 AND u.role = 'therapist'
+      `, [tId]);
+      const t = therapistRes.rows[0] as any;
+      if (t) {
+        assignedTherapist = {
+          id: t.id,
+          name: t.name,
+          qualification: t.qualification ?? "",
+          experience: t.experience ?? "",
+          specialty: t.specialty ?? "",
+          bio: t.bio ?? "",
+        };
+      }
+    }
 
     // Get session stats using SQL aggregate functions
     const statsRes = await db.query(`
@@ -58,6 +87,7 @@ router.get("/", async (req: Request, res: Response) => {
         clinicName: profile?.clinicname ?? profile?.clinicName ?? "",
         qualification: profile?.qualification ?? "",
         experience: profile?.experience ?? "",
+        assignedTherapist,
         stats: {
           sessionsCount: count,
           avgFluency: avgFluency,
