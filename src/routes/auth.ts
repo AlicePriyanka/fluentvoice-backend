@@ -98,6 +98,31 @@ router.post("/register", async (req: Request, res: Response) => {
       now.toISOString()
     ]);
 
+    // If therapist, persist qualification, experience, specialty, bio to profiles table
+    if (role === "therapist") {
+      const profileId = crypto.randomBytes(12).toString("hex");
+      const { qualification, experience, specialty, bio } = req.body;
+      await db.query(`
+        INSERT INTO profiles (_id, userId, role, qualification, experience, specialty, bio, updatedAt)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (userId) DO UPDATE SET
+          qualification = EXCLUDED.qualification,
+          experience = EXCLUDED.experience,
+          specialty = EXCLUDED.specialty,
+          bio = EXCLUDED.bio,
+          updatedAt = EXCLUDED.updatedAt
+      `, [
+        profileId,
+        userId,
+        "therapist",
+        qualification?.trim() || null,
+        experience?.trim() || null,
+        specialty?.trim() || null,
+        bio?.trim() || null,
+        now.toISOString()
+      ]);
+    }
+
     console.log(`[Register] SUCCESS: User registered successfully. ID: ${userId}, Email: ${emailKey}, Assigned Therapist: ${therapistId || 'none'}`);
 
     const token = await signToken({
@@ -247,9 +272,19 @@ router.post("/forgot-password", async (req: Request, res: Response) => {
 // GET /api/auth/therapists — public, used by registration form
 router.get("/therapists", async (_req: Request, res: Response) => {
   try {
-    const result = await db.query(
-      "SELECT _id as id, name FROM users WHERE role = 'therapist' ORDER BY name ASC"
-    );
+    const result = await db.query(`
+      SELECT 
+        u._id as id, 
+        u.name, 
+        p.specialty, 
+        p.qualification, 
+        p.experience, 
+        p.bio
+      FROM users u
+      LEFT JOIN profiles p ON u._id = p.userId
+      WHERE u.role = 'therapist' 
+      ORDER BY u.name ASC
+    `);
     return res.json({ therapists: result.rows });
   } catch (err) {
     console.error("GET /api/auth/therapists error:", err);

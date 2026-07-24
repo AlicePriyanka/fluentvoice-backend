@@ -46,10 +46,15 @@ async function ensureTables() {
         specialty TEXT,
         licenseNumber TEXT,
         clinicName TEXT,
+        qualification TEXT,
+        experience TEXT,
         updatedAt TEXT NOT NULL,
         FOREIGN KEY (userId) REFERENCES users (_id) ON DELETE CASCADE
       );
     `);
+
+    await client.query("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS qualification TEXT;");
+    await client.query("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS experience TEXT;");
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS sessions (
